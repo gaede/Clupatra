@@ -216,7 +216,8 @@ void printTrackerHit(const EVENT::LCObject* o){
   } else {
     
     streamlog_out( MESSAGE )  << " --- TrackerHit: " << *hit  
-			      << "\n --- delta Chi2 = " << hit->ext<DChi2>() << std::endl ;
+			      << "\n --- delta Chi2 = " << hit->ext<DChi2>()
+			      << "\n --- cov. matrix = " << hit->getCovMatrix()[0] <<", "<<hit->getCovMatrix()[2] <<", "<<hit->getCovMatrix()[5] <<"  "<< std::endl ;
   }
 }
 //----------------------------------------------------------------
@@ -245,7 +246,8 @@ ClupatraProcessor aClupatraProcessor ;
 
 
 ClupatraProcessor::ClupatraProcessor() : Processor("ClupatraProcessor") ,
-					 _trksystem(0), _gearTPC(0) ,_padLayout(0) {
+//					 _trksystem(0), _gearTPC(0) ,_padLayout(0) {
+					 _trksystem(0), _gearTPC(0) {
   
   // modify processor description
   _description = "ClupatraProcessor : nearest neighbour clustering seeded pattern recognition" ;
@@ -462,11 +464,23 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
   LCIOTrackConverter converter ;
   
   _gearTPC = &Global::GEAR->getTPCParameters() ;
-  _padLayout = &_gearTPC->getPadLayout() ;
-
+  // Alex:: support for more than one module
+  //  _padLayout = &_gearTPC->getPadLayout() ;
+  //  unsigned maxTPCLayers =  _padLayout->getNRows() ;
   _bfield = Global::GEAR->getBField().at( gear::Vector3D(0.,0.0,0.) ).z() ;
 
-  unsigned maxTPCLayers =  _padLayout->getNRows() ;
+  // Alex:: only 3 rows of modules exist for now
+//  unsigned maxTPCLayers =  _tpcModule->getNRows() * _gearTPC->getNModules();
+//  _tpcModule = &_gearTPC->getModule(0);
+  unsigned maxTPCLayers;
+  if (Global::GEAR->getDetectorName() == "LPTPC" )
+    maxTPCLayers =  _gearTPC->getModule(0).getNRows() + _gearTPC->getModule(2).getNRows() + _gearTPC->getModule(5).getNRows();
+  else
+    maxTPCLayers =  _gearTPC->getModule(0).getNRows();
+
+  // Alex:: try to make the N of layers static?
+  //  static unsigned tpcParameters.getModule(0).getNRows() + tpcParameters.getModule(2).getNRows() + row ); <-- still needs correct coding here
+
   
   double driftLength = _gearTPC->getMaxDriftLength() ;
   ZIndex zIndex( -driftLength , driftLength , _nZBins  ) ; 
@@ -502,7 +516,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
     //------
     
     TrackerHit* th = (TrackerHit*) col->getElementAt(i) ;
-    
+
     ClupaHit* ch  = & clupaHits[i] ; 
     
     Hit* gh =  new Hit( ch ) ;
@@ -530,7 +544,10 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 
   //--------------------------------------------------------------------------------------------------------- 
   
-  std::sort( nncluHits.begin(), nncluHits.end() , ZSort() ) ;
+  if (Global::GEAR->getDetectorName() == "LPTPC" )
+    std::sort( nncluHits.begin(), nncluHits.end() , RSort() ) ;
+  else
+    std::sort( nncluHits.begin(), nncluHits.end() , ZSort() ) ;
   
   //--------------------------------------------------------------------------------------------------------- 
   
@@ -614,8 +631,10 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
     HitDistance dist( nloop * dcut , _cosAlphaCut ) ;
 
     outerRow = maxTPCLayers - 1 ;
-    
+
+
     while( outerRow >= _minCluSize ) { //_padRowRange * .5 ) {
+//      std::cout<<"Alex:: outer row = "<<outerRow<<std::endl;
 
       HitVec hits ;
       hits.reserve( nHit ) ;
@@ -638,7 +657,8 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
       streamlog_out( DEBUG2 ) << "   call cluster_sorted with " <<  hits.size() << " hits " << std::endl ;
 
       nncl.cluster_sorted( hits.begin(), hits.end() , std::back_inserter( sclu ), dist , _minCluSize ) ;
-    
+
+//      std::cout<<"Alex:: sclu size = "<<sclu.size()<<std::endl;
       const static int merge_seeds = true ; 
 
       if( merge_seeds ) { //-----------------------------------------------------------------------
@@ -713,6 +733,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 
 	MarlinTrk::IMarlinTrack* mTrk = fitter( *icv ) ;
 
+//	std::cout<<"Alex:: addHitsAndFilter will be called with dChi2Max = "<<_dChi2Max <<std::endl;
 	nHitsAdded += addHitsAndFilter( *icv , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex ) ; 
       
 	static const bool backward = true ;
@@ -778,8 +799,16 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
     
     int padRangeRecluster = 50 ; // FIXME: make parameter 
     // define an inner cylinder where we exclude hits from re-clustering:
-    double zMaxInnerHits   = driftLength * .67 ;   // FIXME: make parameter 
-    double rhoMaxInnerHits = _padLayout->getPlaneExtent()[0] + (  _padLayout->getPlaneExtent()[1] - _padLayout->getPlaneExtent()[0] ) * .67 ;// FIXME: make parameter 
+    double zMaxInnerHits   = driftLength * .67 ;   // FIXME: make parameter
+    // Alex:: support for more than one module
+//    double rhoMaxInnerHits = _padLayout->getPlaneExtent()[0] + (  _padLayout->getPlaneExtent()[1] - _padLayout->getPlaneExtent()[0] ) * .67 ;// FIXME: make parameter
+
+    // Alex:: wrong! instead of using a single module we need to use the full geometry, i.e. take the plane extent from the TPCParameters file
+//    double rhoMaxInnerHits = _tpcModule->getPlaneExtent()[0] + (  _tpcModule->getPlaneExtent()[1] - _tpcModule->getPlaneExtent()[0] ) * .67 ;// FIXME: make parameter
+//    std::cout
+//         <<"Alex:: plane extent for module 0 = "<<_gearTPC->getModule(0).getPlaneExtent()[0]<<"  "<<_gearTPC->getModule(0).getPlaneExtent()[1]
+//         <<" and for the full TPC = "<<_gearTPC->getPlaneExtent()[0]<<"  "<<_gearTPC->getPlaneExtent()[1]<<std::endl;
+    double rhoMaxInnerHits = _gearTPC->getPlaneExtent()[0] + (  _gearTPC->getPlaneExtent()[1] - _gearTPC->getPlaneExtent()[0] ) * .67 ;// FIXME: make parameter
     
     streamlog_out( DEBUG5 ) << "  ===========================================================================\n"
 			    << "      recluster in leftover hits - outside a clyinder of :  z =" << zMaxInnerHits << " rho = " <<  rhoMaxInnerHits << "\n"
@@ -863,6 +892,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 	    
 	    streamlog_out( DEBUG5 ) << " extending mult-5 clustre  of length " << (*ir)->size() << std::endl ;
 	    
+//	    std::cout<<"Alex:: addHitsAndFilter will be called with _dChi2Max = "<<_dChi2Max<<std::endl;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex) ; 
 	    static const bool backward = true ;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex, backward ) ; 
@@ -884,6 +914,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 	  
 	    streamlog_out( DEBUG5 ) << " extending mult-4 clustre  of length " << (*ir)->size() << std::endl ;
 	  
+//	    std::cout<<"Alex:: addHitsAndFilter (case 2) will be called with _dChi2Max = "<<_dChi2Max<<std::endl;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex) ; 
 	    static const bool backward = true ;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex, backward ) ; 
@@ -905,6 +936,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 	  
 	    streamlog_out( DEBUG5 ) << " extending triplet clustre  of length " << (*ir)->size() << std::endl ;
 	  
+//	    std::cout<<"Alex:: addHitsAndFilter (case 3) will be called with _dChi2Max = "<<_dChi2Max<<std::endl;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex) ; 
 	    static const bool backward = true ;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex, backward ) ; 
@@ -926,6 +958,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 	  
 	    streamlog_out( DEBUG5 ) << " extending doublet clustre  of length " << (*ir)->size() << std::endl ;
 	  
+//	    std::cout<<"Alex:: addHitsAndFilter (case 4) will be called with _dChi2Max = "<<_dChi2Max<<std::endl;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex) ; 
 	    static const bool backward = true ;
 	    addHitsAndFilter( *ir , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex, backward ) ; 
@@ -939,6 +972,7 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
 	
 	  seedTrks.push_back( fitter( *it )  );
 	
+//          std::cout<<"Alex:: addHitsAndFilter (case 4) will be called with _dChi2Max = "<<_dChi2Max<<std::endl;
 	  addHitsAndFilter( *it , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex) ; 
 	  static const bool backward = true ;
 	  addHitsAndFilter( *it , hitsInLayer , _dChi2Max, _chi2Cut , _maxStep , zIndex, backward ) ; 
@@ -1392,8 +1426,11 @@ void ClupatraProcessor::processEvent( LCEvent * evt ) {
   //===============================================================================================
   if( _createDebugCollections ) {
 
-    float r_inner = _padLayout->getPlaneExtent()[0] ;
-    float r_outer = _padLayout->getPlaneExtent()[1] ;
+    // Alex:: support for more than one module
+//    float r_inner = _padLayout->getPlaneExtent()[0] ;
+//    float r_outer = _padLayout->getPlaneExtent()[1] ;
+    float r_inner = _gearTPC->getPlaneExtent()[0] ;
+    float r_outer = _gearTPC->getPlaneExtent()[1] ;
 
 
     for(  LCIterator<TrackImpl> it( outCol ) ;  TrackImpl* trk = it.next()  ; ) {
@@ -1795,8 +1832,11 @@ void ClupatraProcessor::computeTrackInfo(  lcio::Track* lTrk  ){
   if( ! lTrk->ext<TrackInfo>() )
     lTrk->ext<TrackInfo>() =  new TrackInfoStruct ;
 
-  float r_inner = _padLayout->getPlaneExtent()[0] ;
-  float r_outer = _padLayout->getPlaneExtent()[1] ;
+  // Alex:: support for more than one module
+//  float r_inner = _padLayout->getPlaneExtent()[0] ;
+//  float r_outer = _padLayout->getPlaneExtent()[1] ;
+  float r_inner = _gearTPC->getPlaneExtent()[0] ;
+  float r_outer = _gearTPC->getPlaneExtent()[1] ;
   float driftLength = _gearTPC->getMaxDriftLength() ;
 
   // compute z-extend of this track segment

@@ -124,6 +124,12 @@ namespace clupatra_new{
       return ( l->first->pos.z() < r->first->pos.z() ); 
     }
   };
+
+  struct RSort {
+    inline bool operator()( const Hit* l, const Hit* r) {
+      return ( l->first->pos.r() < r->first->pos.r() );
+    }
+  };
   
 
   //------------------------------------------------------------------------------------------

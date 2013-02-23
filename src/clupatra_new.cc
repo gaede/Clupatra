@@ -9,8 +9,10 @@
 
 ///---- GEAR ----
 #include "marlin/Global.h"
+#include "gear/GEAR.h"
 #include "gear/TPCParameters.h"
-#include "gear/PadRowLayout2D.h"
+//#include "gear/PadRowLayout2D.h"
+#include "gear/TPCModule.h"
 
 #include "gear/BField.h"
 
@@ -42,7 +44,6 @@ namespace clupatra_new{
       // double sigsr =  0.01 ; 
       // double sigsz =  0.1 ;
     
-
       double dPhi = std::abs(  v0.phi() - v1.phi() )  ;
       if( dPhi > M_PI )
 	dPhi = 2.* M_PI - dPhi ;
@@ -79,8 +80,21 @@ namespace clupatra_new{
 
     const double bfield = marlin::Global::GEAR->getBField().at( gear::Vector3D(0.,0.0,0.) ).z() ;
 
-    const int maxTPCLayerID  = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() - 1 ; 
-   
+    static const gear::TPCParameters*  gearTPC = &marlin::Global::GEAR->getTPCParameters();
+    //    // Alex:: support for more than one module
+//    const int maxTPCLayerID  = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() - 1 ;
+    static const int maxTPCLayerID  = (marlin::Global::GEAR->getDetectorName() == "LPTPC" ) ?
+                                         gearTPC->getModule(0).getNRows() + gearTPC->getModule(2).getNRows() + gearTPC->getModule(5).getNRows() - 1 : // LCTPC
+                                         gearTPC->getModule(0).getNRows() - 1 ; // ILD
+
+//    const gear::TPCParameters* gearTPC   = &marlin::Global::GEAR->getTPCParameters();
+//    const gear::TPCModule*     tpcmodule = &gearTPC->getModule(0);
+//    // If every module hass different meas. layers:
+////    const int maxTPCLayerID  = tpcmodule->getNRows() * gearTPC->getNModules() - 1 ;
+//    // If modules of the same center have shared meas. layers:
+//    // FIXME: needs a more elegant way to determine the number of rows
+//    const int maxTPCLayerID  = tpcmodule->getNRows() * 3 - 1 ;
+
     clu->sort( LayerSortIn() ) ;
     
     int layer =  ( backward ?  clu->front()->first->layer : clu->back()->first->layer   ) ; 
@@ -187,10 +201,12 @@ namespace clupatra_new{
       
       if( firstHit )  {
 
+//        std::cout<<"Alex:: 775566_firsthit "<<std::endl;
 	intersects  = theTrk->intersectionWithLayer( layerID, firstHit, xv, elementID , mode )   ; 
 	
       } else {
-	
+//        std::cout<<"Alex:: 775566 "<<std::endl;
+
 	intersects  = theTrk->intersectionWithLayer( layerID, xv, elementID , mode )  ; 
       }
 
@@ -242,6 +258,7 @@ namespace clupatra_new{
 	    
 	    double deltaChi = 0. ;  
 	    
+//	    std::cout<<"Alex:: chi2 increment = "<<dChi2Max<<std::endl;
 	    int addHit =  theTrk->addAndFit( bestHit->first->lcioHit, deltaChi, dChi2Max )  ;
 	    
 	    
@@ -310,6 +327,7 @@ namespace clupatra_new{
     
     int elementID = -1 ;
     
+//    std::cout<<"Alex:: 775566_addhitandfilter "<<std::endl;
     int intersects = trk->intersectionWithLayer( layerID, xv, elementID , IMarlinTrack::modeClosest  ) ; 
     
     //  IMarlinTrack::modeBackward , IMarlinTrack::modeForward 
@@ -508,8 +526,18 @@ namespace clupatra_new{
     // copy of the algorithm for creating three clusters (minimize angle between hits as seen from IP)
     
     hV.freeElements() ;
-    
-    static const int tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ; 
+
+    // Alex:: support for more than one module
+//    static const int tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ;
+    static const int tpcNRow = marlin::Global::GEAR->getTPCParameters().getModule(0).getNRows() * 3;
+
+//    const gear::TPCParameters* gearTPC   = &marlin::Global::GEAR->getTPCParameters();
+//    const gear::TPCModule*     tpcmodule = &gearTPC->getModule(0);
+//    // If every module hass different meas. layers:
+////    const int maxTPCLayerID  = tpcmodule->getNRows() * gearTPC->getNModules() - 1 ;
+//    // If modules of the same center have shared meas. layers:
+//    // FIXME: needs a more elegant way to determine the number of rows
+//    static const int tpcNRow = tpcmodule->getNRows() * 3;
     
     HitListVector hitsInLayer( tpcNRow )  ; 
     addToHitListVector(  hV.begin(), hV.end(), hitsInLayer ) ;
@@ -648,7 +676,8 @@ namespace clupatra_new{
     
     hV.freeElements() ;
     
-    int static tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ; 
+//    int static tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ;
+    int static tpcNRow = marlin::Global::GEAR->getTPCParameters().getModule(0).getNRows() * 3;
     
     HitListVector hitsInLayer( tpcNRow )  ; 
     addToHitListVector(  hV.begin(), hV.end(), hitsInLayer ) ;
@@ -814,7 +843,9 @@ namespace clupatra_new{
     
     streamlog_out(  DEBUG ) << " create_two_clusters  --- called ! - size :  " << clu.size()  << std::endl ;
 
-    int static tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ; 
+    // Alex:: support for more than one module
+//    static const int tpcNRow = marlin::Global::GEAR->getTPCParameters().getPadLayout().getNRows() ;
+    static const int tpcNRow = marlin::Global::GEAR->getTPCParameters().getModule(0).getNRows() * 3;
     
     HitListVector hitsInLayer( tpcNRow )  ; 
 
@@ -979,7 +1010,9 @@ namespace clupatra_new{
     
     bool isFirstFit = true ;
     double maxChi2  =  _maxChi2Increment   ;
-    
+
+//    std::cout<<"Alex:: operator() called with _maxChi2incr = "<<_maxChi2Increment<<std::endl;
+
   start:
     
     MarlinTrk::IMarlinTrack* trk = _ts->createTrack();
@@ -1011,6 +1044,7 @@ namespace clupatra_new{
 	
 	trk->addHit( (*it)->first->lcioHit  ) ; 
 	++nHit ;
+//	std::cout<<"Alex:: reverse order for the hits is in progress"<<std::endl;
 
 	streamlog_out( DEBUG1 ) <<  "   hit  added  " <<  *(*it)->first->lcioHit   << std::endl ;
       }
@@ -1023,6 +1057,8 @@ namespace clupatra_new{
 	
 	trk->addHit( (*it)->first->lcioHit   ) ; 
 	++nHit ;
+//	std::cout<<"Alex:: usual order for the hits is in progress"<<std::endl;
+//	std::cout<<"Alex:: hit x = "<<(*it)->first->pos.x()<<std::endl;
 	
 	streamlog_out( DEBUG1 ) <<  "   hit  added  "<<  *(*it)->first->lcioHit   << std::endl ;
       }
@@ -1030,7 +1066,8 @@ namespace clupatra_new{
       trk->initialise( MarlinTrk::IMarlinTrack::backward ) ;
     }
     
-    
+
+//    std::cout<<"Alex:: 11 maxchi2 at this stage = "<<maxChi2 <<std::endl;
     int code = trk->fit(  maxChi2  ) ;
     
     if( code != MarlinTrk::IMarlinTrack::success ){
@@ -1180,30 +1217,35 @@ namespace clupatra_new{
 	encoder[ lcio::ILDCellID0::side   ] =  lcio::ILDDetID::barrel;
 	int layerID  = encoder.lowWord() ;  
 	int sensorID = -1 ;
-	
-#if use_fit_at_last_hit
-       	code = mtrk->propagateToLayer( layerID , lHit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
-#else     // get the track state at the calorimter from a propagating from the last(first) constrained fit position
-	code = mtrk->propagateToLayer( layerID , last_constrained_hit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
-#endif
-	
-	if( code ==  MarlinTrk::IMarlinTrack::no_intersection ){
-	  
-	  encoder[ lcio::ILDCellID0::side   ] = ( lHit->getPosition()[2] > 0.  ?   lcio::ILDDetID::fwd  :  lcio::ILDDetID::bwd  ) ;
-	  layerID = encoder.lowWord() ;
-	  
-#if use_fit_at_last_hit
-	  code = mtrk->propagateToLayer( layerID , lHit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
-#else     // get the track state at the calorimter from a propagating from the last(first) constrained fit position
-	  code = mtrk->propagateToLayer( layerID , last_constrained_hit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
-#endif
 
-	}
-	if ( code !=MarlinTrk::IMarlinTrack::success ) {
-	  
-	  streamlog_out( DEBUG6 ) << "  >>>>>>>>>>> LCIOTrackConverter :  could not get TrackState at calo face !!?? " << std::endl ;
-	}
-	
+
+//	std::cout<<"Alex:: propagatetolayer in the barrel reached "<<std::endl;
+//
+//#if use_fit_at_last_hit
+//	std::cout<<"Alex:: propagatetolayer in the barrel reached_1 "<<std::endl;
+//       	code = mtrk->propagateToLayer( layerID , lHit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
+//#else     // get the track state at the calorimter from a propagating from the last(first) constrained fit position
+//	std::cout<<"Alex:: propagatetolayer in the barrel reached_2 "<<std::endl;
+//	code = mtrk->propagateToLayer( layerID , last_constrained_hit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
+//#endif
+//
+//	if( code ==  MarlinTrk::IMarlinTrack::no_intersection ){
+//
+//	  encoder[ lcio::ILDCellID0::side   ] = ( lHit->getPosition()[2] > 0.  ?   lcio::ILDDetID::fwd  :  lcio::ILDDetID::bwd  ) ;
+//	  layerID = encoder.lowWord() ;
+//
+//#if use_fit_at_last_hit
+//	  code = mtrk->propagateToLayer( layerID , lHit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
+//#else     // get the track state at the calorimter from a propagating from the last(first) constrained fit position
+//	  code = mtrk->propagateToLayer( layerID , last_constrained_hit, *tsCA, chi2, ndf, sensorID, MarlinTrk::IMarlinTrack::modeClosest ) ;
+//#endif
+//
+//	}
+//	if ( code !=MarlinTrk::IMarlinTrack::success ) {
+//
+//	  streamlog_out( DEBUG6 ) << "  >>>>>>>>>>> LCIOTrackConverter :  could not get TrackState at calo face !!?? " << std::endl ;
+//	}
+//
 	// ======= get TrackState at IP ========================
 	
 	const gear::Vector3D ipv( 0.,0.,0. );
@@ -1220,7 +1262,7 @@ namespace clupatra_new{
 	trk->addTrackState( tsIP ) ;
 	trk->addTrackState( tsFH ) ;
 	trk->addTrackState( tsLH ) ;
-	trk->addTrackState( tsCA ) ;
+//	trk->addTrackState( tsCA ) ;
 	
 	double RMin = sqrt( tsFH->getReferencePoint()[0] * tsFH->getReferencePoint()[0]
 			    + tsFH->getReferencePoint()[1] * tsFH->getReferencePoint()[1] ) ;
